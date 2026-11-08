@@ -467,20 +467,21 @@ def render_frame(n):
 
 
 # ----------------------------------------------------------------- main
-def encode(n0, n1, out, workers):
-    music = ROOT / SB["music"]
-    t0, dur = n0 / FPS, (n1 - n0) / FPS
-    cmd = ["ffmpeg", "-y", "-v", "error", "-stats",
+META = ["-metadata", "title=平静入梦 — 特蕾西娅 静止画MAD",
+        "-metadata", "comment=Fan work. Arknights assets (c) Hypergryph. Music: Gymnopedie No. 1 "
+                     "by Kevin MacLeod (incompetech.com), CC BY 4.0."]
+
+
+def run(cmd):
+    if subprocess.run(cmd).returncode != 0:
+        raise SystemExit("ffmpeg failed: " + " ".join(cmd[:6]))
+
+
+def render_lossless(n0, n1, path, workers):
+    """Render frames once into a lossless intermediate (video only)."""
+    cmd = ["ffmpeg", "-y", "-v", "error",
            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-           "-ss", f"{t0:.3f}", "-i", str(music),
-           "-filter_complex", f"[1:a]apad,atrim=0:{dur:.3f},afade=t=out:st={max(dur - 0.5, 0):.3f}:d=0.5[a]",
-           "-map", "0:v", "-map", "[a]",
-           "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-tune", "film",
-           "-pix_fmt", "yuv420p", "-g", str(FPS * 4), "-maxrate", "6M", "-bufsize", "12M",
-           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
-           "-metadata", "title=平静入梦 — 特蕾西娅 静止画MAD",
-           "-metadata", "comment=Fan work. Arknights assets (c) Hypergryph. Music: Gymnopedie No. 1 by Kevin MacLeod (incompetech.com), CC BY 4.0.",
-           str(out)]
+           "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv444p", str(path)]
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     batch = FPS * 4  # bounded batches: frames never pile up in memory faster than x264 eats them
     with Pool(workers) as pool:
@@ -491,7 +492,37 @@ def encode(n0, n1, out, workers):
                 print(f"  frame {b0}/{n1}  t={b0 / FPS:6.1f}s", file=sys.stderr, flush=True)
     ff.stdin.close()
     if ff.wait() != 0:
-        raise SystemExit("ffmpeg failed")
+        raise SystemExit("ffmpeg failed (intermediate)")
+
+
+def encode(n0, n1, out, workers, target_mb):
+    """Render, then encode H.264/AAC.  With target_mb > 0 a two-pass encode
+    keeps the whole file under that size (many upload / preview paths cut
+    files above ~50 MB); target_mb = 0 uses constant quality instead."""
+    music = ROOT / SB["music"]
+    t0, dur = n0 / FPS, (n1 - n0) / FPS
+    build = ROOT / "build"
+    build.mkdir(exist_ok=True)
+    inter = build / "intermediate.mkv"
+    render_lossless(n0, n1, inter, workers)
+    audio_in = ["-ss", f"{t0:.3f}", "-i", str(music), "-filter_complex",
+                f"[1:a]apad,atrim=0:{dur:.3f},afade=t=out:st={max(dur - 0.5, 0):.3f}:d=0.5[a]",
+                "-map", "0:v", "-map", "[a]", "-c:a", "aac", "-b:a", "160k"]
+    common = ["-c:v", "libx264", "-preset", "slow", "-tune", "film", "-pix_fmt", "yuv420p",
+              "-g", str(FPS * 4)]
+    if target_mb <= 0:
+        run(["ffmpeg", "-y", "-v", "error", "-stats", "-i", str(inter), *audio_in, *common,
+             "-crf", "22", "-movflags", "+faststart", *META, str(out)])
+        return
+    # bits for video = budget - audio (160k) - ~1.5 % container overhead
+    vbr = int(target_mb * 8e6 / dur * 0.985 - 160e3)
+    print(f"  two-pass target {target_mb} MB -> video {vbr / 1e3:.0f} kb/s", file=sys.stderr)
+    rate = ["-b:v", str(vbr), "-maxrate", str(int(vbr * 2.5)), "-bufsize", str(int(vbr * 5)),
+            "-passlogfile", str(build / "x264pass")]
+    run(["ffmpeg", "-y", "-v", "error", "-i", str(inter), *common, *rate, "-pass", "1",
+         "-an", "-f", "null", "/dev/null"])
+    run(["ffmpeg", "-y", "-v", "error", "-stats", "-i", str(inter), *audio_in, *common, *rate,
+         "-pass", "2", "-movflags", "+faststart", *META, str(out)])
 
 
 def cuesheet(path):
@@ -527,6 +558,8 @@ def main():
     ap.add_argument("--start", type=float, default=0.0)
     ap.add_argument("--end", type=float, default=None)
     ap.add_argument("--out", default=str(ROOT / "output" / "Theresa_MAD_平静入梦.mp4"))
+    ap.add_argument("--target-mb", type=float, default=40.0,
+                    help="two-pass encode to this file size (0 = constant quality, larger file)")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     a = ap.parse_args()
     print(f"timeline: {len(SHOTS)} shots, music ends {CREDITS['t0']:.2f}s, total {TOTAL:.2f}s")
@@ -543,7 +576,7 @@ def main():
     n0 = int(round(a.start * FPS))
     n1 = int(round((a.end if a.end is not None else TOTAL) * FPS))
     pathlib.Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    encode(n0, n1, a.out, a.workers)
+    encode(n0, n1, a.out, a.workers, a.target_mb)
     print("wrote", a.out)
 
 

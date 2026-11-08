@@ -1,6 +1,6 @@
 # 平静入梦 — 特蕾西娅 · 明日方舟静止画MAD
 
-《明日方舟》角色**特蕾西娅（Theresa）**的静止画 MAD，1080p / 30fps，时长约 3 分 16 秒。
+《明日方舟》角色**特蕾西娅（Theresa）**的静止画 MAD，1080p / 30fps，时长 3 分 13 秒，文件约 39MB。
 
 - 成片：[`output/Theresa_MAD_平静入梦.mp4`](output/Theresa_MAD_平静入梦.mp4)
 - 角色资料与故事整理：[`docs/特蕾西娅_角色资料.md`](docs/特蕾西娅_角色资料.md)
@@ -33,10 +33,12 @@
 pip install numpy pillow opencv-python-headless scipy
 python3 scripts/fetch_assets.py        # 下载 CG / 立绘 / 音乐 / 字体到 assets/（不入库）
 python3 scripts/analyze_beats.py       # 节拍分析 -> mad/beats.json
-python3 scripts/render.py              # 渲染成片 -> output/
+python3 scripts/render.py              # 渲染成片 -> output/（两遍编码，默认控制在 40MB 内）
 python3 scripts/render.py --stills 30 95   # 只渲染若干预览帧 -> build/
 python3 scripts/render.py --cuesheet   # 重新生成 docs/分镜表.md
 ```
+
+成片默认用两遍编码控制在约 40MB：不少上传 / 预览渠道会截断 50MB 以上的文件，导致播放到一半后音画全无。如需更高码率的本地版本，可用 `--target-mb 0`（恒定质量，约 70MB）。
 
 分镜写在 [`mad/storyboard.json`](mad/storyboard.json)，以**小节**为单位定义每个镜头（起始小节、持续小节数、图片、缩放/中心点、转场、字幕）。想换配乐的话，对新音频重新运行 `analyze_beats.py`，再按新的小节数调整分镜即可。
 

@@ -9,7 +9,7 @@
   1920,
   1080
  ],
- "credits_seconds": 9.0,
+ "credits_seconds": 6.0,
  "notes": "bar = 1-indexed bar of the soundtrack (3/4, ~2.34 s). Each shot lasts `bars` bars. focus/c = normalized image coords; z = zoom relative to cover-fit.",
  "shots": [
   {
