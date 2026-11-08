@@ -482,11 +482,13 @@ def encode(n0, n1, out, workers):
            "-metadata", "comment=Fan work. Arknights assets (c) Hypergryph. Music: Gymnopedie No. 1 by Kevin MacLeod (incompetech.com), CC BY 4.0.",
            str(out)]
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    batch = FPS * 4  # bounded batches: frames never pile up in memory faster than x264 eats them
     with Pool(workers) as pool:
-        for k, fr in enumerate(pool.imap(render_frame, range(n0, n1), chunksize=6)):
-            ff.stdin.write(fr.tobytes())
-            if k % (FPS * 10) == 0:
-                print(f"  frame {n0 + k}/{n1}  t={(n0 + k) / FPS:6.1f}s", file=sys.stderr, flush=True)
+        for b0 in range(n0, n1, batch):
+            for fr in pool.map(render_frame, range(b0, min(b0 + batch, n1)), chunksize=4):
+                ff.stdin.write(fr.tobytes())
+            if (b0 - n0) % (FPS * 20) == 0:
+                print(f"  frame {b0}/{n1}  t={b0 / FPS:6.1f}s", file=sys.stderr, flush=True)
     ff.stdin.close()
     if ff.wait() != 0:
         raise SystemExit("ffmpeg failed")
